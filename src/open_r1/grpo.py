@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 import datasets
 import torch
 import transformers
-from datasets import load_dataset
+from datasets import load_dataset, DatasetDict, concatenate_datasets
 from transformers import set_seed
 from transformers.trainer_utils import get_last_checkpoint
 
@@ -38,6 +38,25 @@ from trl import GRPOTrainer, ModelConfig, ScriptArguments, TrlParser, get_peft_c
 
 logger = logging.getLogger(__name__)
 
+
+def prepare_math_dataset():
+    subsets = ['algebra', 'counting_and_probability', 'geometry', 
+                   'intermediate_algebra', 'number_theory', 'prealgebra', 'precalculus']
+    subset_datasets = [
+                    load_dataset(
+                        "EleutherAI/hendrycks_math", 
+                        subset, 
+                        split='train', 
+                        download_mode="reuse_dataset_if_exists"
+                    ) for subset in subsets
+                ]
+    train_dataset = concatenate_datasets(subset_datasets)
+    test_dataset = load_dataset("HuggingFaceH4/MATH-500", split="test")
+    dataset_dict = DatasetDict({
+        "train": train_dataset,
+        "test": test_dataset
+    })
+    return dataset_dict
 
 @dataclass
 class GRPOScriptArguments(ScriptArguments):
@@ -140,24 +159,25 @@ def main(script_args, training_args, model_args):
         logger.info(f"Checkpoint detected, resuming training at {last_checkpoint=}.")
 
     # Load the dataset
-    dataset = load_dataset(script_args.dataset_name, name=script_args.dataset_config)
+    # dataset = load_dataset(script_args.dataset_name, name=script_args.dataset_config)
+    dataset = prepare_math_dataset()
 
     # Get reward functions
     REWARD_FUNCS_REGISTRY = {
         "accuracy": accuracy_reward,
         "format": format_reward,
-        "reasoning_steps": reasoning_steps_reward,
-        "cosine": get_cosine_scaled_reward(
-            min_value_wrong=script_args.cosine_min_value_wrong,
-            max_value_wrong=script_args.cosine_max_value_wrong,
-            min_value_correct=script_args.cosine_min_value_correct,
-            max_value_correct=script_args.cosine_max_value_correct,
-            max_len=script_args.cosine_max_len,
-        ),
-        "repetition_penalty": get_repetition_penalty_reward(
-            ngram_size=script_args.repetition_n_grams,
-            max_penalty=script_args.repetition_max_penalty,
-        ),
+        # "reasoning_steps": reasoning_steps_reward,
+        # "cosine": get_cosine_scaled_reward(
+        #     min_value_wrong=script_args.cosine_min_value_wrong,
+        #     max_value_wrong=script_args.cosine_max_value_wrong,
+        #     min_value_correct=script_args.cosine_min_value_correct,
+        #     max_value_correct=script_args.cosine_max_value_correct,
+        #     max_len=script_args.cosine_max_len,
+        # ),
+        # "repetition_penalty": get_repetition_penalty_reward(
+        #     ngram_size=script_args.repetition_n_grams,
+        #     max_penalty=script_args.repetition_max_penalty,
+        # ),
     }
     reward_funcs = [REWARD_FUNCS_REGISTRY[func] for func in script_args.reward_funcs]
 
